@@ -1,0 +1,91 @@
+C51 COMPILER V9.60.7.0   SEG                                                               03/27/2026 20:19:40 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE SEG
+OBJECT MODULE PLACED IN .\Objects\seg.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE ..\src\driver\seg.c OPTIMIZE(8,SPEED) BROWSE INCDIR(..\src\driver) DEBUG
+                    - OBJECTEXTEND PRINT(.\Listings\seg.lst) TABS(2) OBJECT(.\Objects\seg.obj)
+
+line level    source
+
+   1          #include "seg.h" // 包含了数码管显示相关的头文件
+   2          
+   3          // --- 数码管段码表 ---
+   4          // 使用 "pdata" 关键字建议编译器将此数组存储在分页外部数据存储器(XDATA的一页)中。
+   5          // 这是一个共阳极数码管的段码表。数组索引 0-9 对应数字 0-9，索引 10 对应熄灭。
+   6          // 共阳极数码管的段选线是低电平有效，所以字节中为'0'的位对应的LED段会点亮。
+   7          // 例如：seg_dula[0] = 0xc0 = 1100 0000b。如果段的顺序是 DP-G-F-E-D-C-B-A，
+   8          // 那么这个码值会点亮 a,b,c,d,e,f 段，熄灭 g,dp 段，从而显示出数字 '0'。
+   9          pdata unsigned char seg_dula[]={0xc0,0xf9,0xa4,0xb0,0x99,0x92,0x82,0xf8,0x80,0x90,0xff,0xbf,0x8c,0x8e};
+  10          
+  11          /**
+  12           * @brief 数码管显示单次驱动函数
+  13           * @param wela  位选参数 (0-7)，选择要点亮哪一位数码管。
+  14           * @param dula  段选参数 (0-10)，选择要显示哪个数字（0-9）或熄灭（10）。
+  15           * @param point 小数点使能位。如果为1(true)，则点亮该位的小数点。
+  16           * @note  此函数每次只点亮一位数码管，需要在定时器中断或主循环中快速轮流调用来显示多位。
+  17           */
+  18          void Seg_Disp(unsigned char wela, unsigned char dula, bit point)
+  19          {
+  20   1          unsigned char temp; // 用于P2口操作的临时变量
+  21   1      
+  22   1          // --- 步骤 1: 消隐 (消除上一次显示的残影) ---
+  23   1          // 在切换位选之前，先将所有段选都关闭，可以有效防止“鬼影”现象。
+  24   1          P0 = 0xff; // P0口送出全1，对于共阳极数码管，这会熄灭所有段。
+  25   1          
+  26   1          // 使用138译码器选择段选锁存器（Y7输出，地址111）
+  27   1          temp = P2 & 0x1f;   // 保留P2低5位原状态
+  28   1          temp = temp | 0xe0;   // 设置P2高3位为111 (0xe0 = 1110 0000b)
+  29   1          P2 = temp;          // 选中段选锁存器，将P0上的“全灭”信号送出
+  30   1          temp = P2 & 0x1f;   // 恢复P2高3位为000
+  31   1          P2 = temp;          // 取消选择，完成数据锁存
+  32   1          
+  33   1          // --- 步骤 2: 位选 (选择要点亮的数码管位置) ---
+  34   1          // 通过P0口送出位选数据。例如 wela=0, P0=0x01; wela=1, P0=0x02 ...
+  35   1          // 这个信号会送到位选锁存器，使其只打开对应一位数码管的公共阳极。
+  36   1          P0 = 0x01 << wela;
+  37   1          
+  38   1          // 使用138译码器选择位选锁存器（Y6输出，地址110）
+  39   1          temp = P2 & 0x1f;
+  40   1          temp = temp | 0xc0;   // 设置P2高3位为110 (0xc0 = 1100 0000b)
+  41   1          P2 = temp;
+  42   1          temp = P2 & 0x1f;
+  43   1          P2 = temp;
+  44   1          
+  45   1          // --- 步骤 3: 段选 (在该位置上显示指定内容) ---
+  46   1          // 从段码表中取出要显示的数字/字符的编码
+  47   1          P0 = seg_dula[dula];
+  48   1          
+  49   1          // 如果需要点亮小数点
+  50   1          if(point)
+  51   1          {
+  52   2              // 将段码的最高位(DP段)强制清零，以点亮小数点。
+  53   2              // 0x7f = 0111 1111b。P0 & 0x7f 会使bit7变为0，其他位不变。
+  54   2              P0 &= 0x7f;
+C51 COMPILER V9.60.7.0   SEG                                                               03/27/2026 20:19:40 PAGE 2   
+
+  55   2          }
+  56   1          
+  57   1          // 再次使用138译码器选择段选锁存器（Y7输出，地址111）
+  58   1          // 将P0上准备好的段码数据发送给所有数码管的段引脚。
+  59   1          // 但因为只有在“位选”步骤中选中的那一位的阳极是通的，所以只有那一位会显示。
+  60   1          temp = P2 & 0x1f;
+  61   1          temp = temp | 0xe0;
+  62   1          P2 = temp;
+  63   1          temp = P2 & 0x1f;
+  64   1          P2 = temp;
+  65   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     79    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     14    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

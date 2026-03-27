@@ -1,0 +1,602 @@
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE ..\src\user\main.c OPTIMIZE(8,SPEED) BROWSE INCDIR(..\src\driver) DEBUG 
+                    -OBJECTEXTEND PRINT(.\Listings\main.lst) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          // 包含 STC15F2K60S2 单片机的头文件，提供了寄存器定义等
+   2          #include <STC15F2K60S2.H>
+   3          
+   4          
+   5          // 包含自定义的初始化、外设驱动和功能模块的头文件
+   6          #include "init.h" // 系统初始化
+   7          #include "led.h"  // LED 模块
+   8          #include "seg.h"  // 数码管模块
+   9          #include "key.h"  // 按键模块
+  10          
+  11          #include "ds1302.h"     // DS1302 实时时钟模块
+  12          #include "onewire.h"    // 单总线协议，用于温度传感器
+  13          #include "iic.h"        // I2C 协议，用于 ADC/DAC 和 EEPROM
+  14          #include "ultrasound.h" // 超声波模块
+  15          #include "uart.h"       // 串口通信模块
+  16          
+  17          // 包含标准库头文件
+  18          #include "string.h" // 字符串处理函数
+  19          #include "stdio.h"  // 标准输入输出函数，如 printf 和 sscanf
+  20          
+  21          // 全局变量定义
+  22          
+  23          // `idata` 存储在内部高速 RAM 中，访问速度快
+  24          // 系统滴答计时器，由 Timer1 中断每毫秒增加一次
+  25          idata unsigned long int uwTick;
+  26          
+  27          // `pdata` 存储在外部 RAM 的分页区域，访问速度较快
+  28          // LED灯的状态数组，对应8个LED的亮灭
+  29          pdata unsigned char ucLed[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  30          
+  31          // 数码管显示缓冲区，存储要在8位数码管上显示的数字或符号
+  32          pdata unsigned char Seg_Buf[8] = {10, 10, 10, 10, 10, 10, 10, 10}; // 10代表不显示
+  33          // 当前正在刷新的数码管位置索引 (0-7)
+  34          idata unsigned char Seg_Pos = 0;
+  35          
+  36          // 按键状态变量
+  37          idata unsigned char Key_Val;  // 当前按键值
+  38          idata unsigned char Key_Old;  // 上一次的按键值，用于检测边沿
+  39          idata unsigned char Key_Up;   // 按键抬起事件标志
+  40          idata unsigned char Key_Down; // 按键按下事件标志
+  41          
+  42          // `idata` 存储在内部高速 RAM 中
+  43          // 存储放大10倍的温度值，以处理一位小数
+  44          idata unsigned int Temperature_10x;
+  45          
+  46          // `idata` 存储在内部高速 RAM 中
+  47          // 存储超声波测量的距离
+  48          idata unsigned int Distance;
+  49          idata unsigned int distance_old;
+  50          pdata unsigned int distance_data[32];
+  51          idata unsigned char distance_count;
+  52          idata bit distance_record_flag;
+  53          idata unsigned int time_6000ms;
+  54          idata bit recording_completed_flag;
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 2   
+
+  55          
+  56          // 数码管显示模式
+  57          // 0:测距界面 1:参数界面 2:工厂模式界面
+  58          idata unsigned char Seg_Show_Mode;
+  59          
+  60          // 测距模式
+  61          idata bit distance_mode; // 0:cm 1:m
+  62          
+  63          // 参数界面
+  64          idata unsigned char para_mode; // 参数编号
+  65          idata unsigned char distance_para = 40;
+  66          idata unsigned char temperature_para = 30;
+  67          
+  68          // 工厂模式
+  69          idata unsigned char factory_mode;         // 工厂模式编号 0:校准值 1：介质设置 2：DAC输出
+  70          idata char calibration_data;              // 校准值
+  71          idata unsigned char calibration_data_abs; // 校准值绝对值
+  72          
+  73          idata unsigned int transmission_speed = 340;
+  74          
+  75          idata unsigned char dac_output_lower_limit = 10;
+  76          
+  77          idata bit S89_flag;
+  78          idata unsigned int time_2000ms;
+  79          
+  80          idata bit factory_flag;
+  81          idata bit led_flag;
+  82          idata unsigned char time_100ms;
+  83          
+  84          /**
+  85           * @brief 按键处理函数
+  86           * 检测按键的按下和抬起事件，并根据按键执行相应操作。
+  87           */
+  88          void Key_Proc()
+  89          {
+  90   1          unsigned char i;
+  91   1          Key_Val = Key_Read(); // 读取当前按key的状态
+  92   1          // 使用异或运算检测按键状态变化，& Key_Val 检测下降沿（按下）
+  93   1          Key_Down = Key_Val & (Key_Val ^ Key_Old);
+  94   1          // 使用异或运算检测按键状态变化，& ~Key_Val 检测上降沿（抬起）
+  95   1          Key_Up = ~Key_Val & (Key_Val ^ Key_Old);
+  96   1          Key_Old = Key_Val; // 更新旧的按键值
+  97   1      
+  98   1          if (distance_record_flag == 1)
+  99   1              return;
+ 100   1      
+ 101   1          if (Key_Old == 89)
+ 102   1          {
+ 103   2              S89_flag = 1;
+ 104   2              if (time_2000ms >= 2000)
+ 105   2              {
+ 106   3                  Seg_Show_Mode = 0;
+ 107   3                  para_mode = 0;
+ 108   3                  distance_para = 40;
+ 109   3                  temperature_para = 30;
+ 110   3                  factory_mode = 0;
+ 111   3                  calibration_data = 0;
+ 112   3                  transmission_speed = 340;
+ 113   3                  dac_output_lower_limit = 10;
+ 114   3                  S89_flag = 0;
+ 115   3              }
+ 116   2          }
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 3   
+
+ 117   1      
+ 118   1          switch (Key_Down)
+ 119   1          {
+ 120   2          // 界面切换按键
+ 121   2          case 4:
+ 122   2              Seg_Show_Mode = (++Seg_Show_Mode) % 3;
+ 123   2              // 出测距界面
+ 124   2              if (Seg_Show_Mode == 1)
+ 125   2                  distance_mode = 0;
+ 126   2              // 出参数界面
+ 127   2              if (Seg_Show_Mode == 2)
+ 128   2              {
+ 129   3                  para_mode = 0;
+ 130   3                  factory_flag = 1;
+ 131   3              }
+ 132   2              // 出工厂模式
+ 133   2              if (Seg_Show_Mode == 0)
+ 134   2              {
+ 135   3                  factory_mode = 0;
+ 136   3                  factory_flag = 0;
+ 137   3              }
+ 138   2              break;
+ 139   2      
+ 140   2          // 子界面切换按键
+ 141   2          case 5:
+ 142   2              switch (Seg_Show_Mode)
+ 143   2              {
+ 144   3              // 测距界面切换单位
+ 145   3              case 0:
+ 146   3                  distance_mode ^= 1;
+ 147   3                  break;
+ 148   3              // 参数界面切换参数
+ 149   3              case 1:
+ 150   3                  para_mode ^= 1;
+ 151   3                  break;
+ 152   3              // 工厂模式切换
+ 153   3              case 2:
+ 154   3                  factory_mode = (++factory_mode) % 3;
+ 155   3                  break;
+ 156   3              }
+ 157   2              break;
+ 158   2      
+ 159   2          // 加按键
+ 160   2          case 8:
+ 161   2              switch (Seg_Show_Mode)
+ 162   2              {
+ 163   3              // 测距界面
+ 164   3              case 0:
+ 165   3                  distance_record_flag = 1;
+ 166   3                  if (distance_record_flag == 1)
+ 167   3                  {
+ 168   4                      if (distance_old != Distance)
+ 169   4                      {
+ 170   5                          distance_data[distance_count] = Distance;
+ 171   5                          distance_old = Distance;
+ 172   5                          distance_count++;
+ 173   5                      }
+ 174   4                  }
+ 175   3                  break;
+ 176   3      
+ 177   3              // 参数界面
+ 178   3              case 1:
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 4   
+
+ 179   3                  // 距离参数
+ 180   3                  if (para_mode == 0)
+ 181   3                      distance_para = (distance_para == 90) ? 10 : distance_para + 10;
+ 182   3                  // 温度参数
+ 183   3                  else
+ 184   3                      temperature_para = (temperature_para == 80) ? 0 : temperature_para + 1;
+ 185   3                  break;
+ 186   3      
+ 187   3              // 工厂模式
+ 188   3              case 2:
+ 189   3                  // 校准值
+ 190   3                  if (factory_mode == 0)
+ 191   3                      calibration_data = (calibration_data == 90) ? -90 : calibration_data + 5;
+ 192   3                  // 传输速度值
+ 193   3                  else if (factory_mode == 1)
+ 194   3                      transmission_speed = (transmission_speed == 9990) ? 10 : transmission_speed + 10;
+ 195   3                  else
+ 196   3                      dac_output_lower_limit = (dac_output_lower_limit == 20) ? 1 : dac_output_lower_limit + 1;
+ 197   3                  break;
+ 198   3              }
+ 199   2              break;
+ 200   2      
+ 201   2          // 减按键
+ 202   2          case 9:
+ 203   2              switch (Seg_Show_Mode)
+ 204   2              {
+ 205   3              // 测距界面
+ 206   3              case 0:
+ 207   3                  if (recording_completed_flag == 1)
+ 208   3                  {
+ 209   4                      for (i = 0; i < distance_count; i++)
+ 210   4                      {
+ 211   5                          if (distance_data[i] <= 10)
+ 212   5                              Da_Write(dac_output_lower_limit * 51);
+ 213   5                          else if (distance_data[i] >= 90)
+ 214   5                              Da_Write(5 * 51);
+ 215   5                          else
+ 216   5                              Da_Write(((float)(5 - dac_output_lower_limit) * (float)(distance_data[i] - 10) / 8
+             -0.0 + dac_output_lower_limit) * 51.0);
+ 217   5                      }
+ 218   4                      distance_count = 0;
+ 219   4                  }
+ 220   3                  break;
+ 221   3      
+ 222   3              // 参数界面
+ 223   3              case 1:
+ 224   3                  // 距离参数
+ 225   3                  if (para_mode == 0)
+ 226   3                      distance_para = (distance_para == 10) ? 90 : distance_para - 10;
+ 227   3                  // 温度参数
+ 228   3                  else
+ 229   3                      temperature_para = (temperature_para == 0) ? 80 : temperature_para - 1;
+ 230   3                  break;
+ 231   3      
+ 232   3              // 工厂模式
+ 233   3              case 2:
+ 234   3                  // 校准值
+ 235   3                  if (factory_mode == 0)
+ 236   3                      calibration_data = (calibration_data == -90) ? 90 : calibration_data - 5;
+ 237   3                  // 传输速度值
+ 238   3                  else if (factory_mode == 1)
+ 239   3                      transmission_speed = (transmission_speed == 10) ? 9990 : transmission_speed - 10;
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 5   
+
+ 240   3                  else
+ 241   3                      dac_output_lower_limit = (dac_output_lower_limit == 1) ? 20 : dac_output_lower_limit - 1;
+ 242   3                  break;
+ 243   3              }
+ 244   2      
+ 245   2              break;
+ 246   2          }
+ 247   1      }
+ 248          
+ 249          /**
+ 250           * @brief 数码管显示处理函数
+ 251           * 根据当前的 Seg_Show_Mode，准备要显示在数码管上的数据。
+ 252           */
+ 253          void Seg_Proc()
+ 254          {
+ 255   1          // 根据显示模式来填充数码管显示缓冲区 Seg_Buf
+ 256   1          switch (Seg_Show_Mode)
+ 257   1          {
+ 258   2          // 0:测距界面
+ 259   2          case 0:
+ 260   2              Seg_Buf[0] = Temperature_10x / 100 % 10;
+ 261   2              Seg_Buf[1] = Temperature_10x / 10 % 10 + ',';
+ 262   2              Seg_Buf[2] = Temperature_10x % 10;
+ 263   2              Seg_Buf[3] = 11;
+ 264   2              // cm
+ 265   2              if (distance_mode == 0)
+ 266   2              {
+ 267   3                  Seg_Buf[4] = (Distance / 1000 % 10 == 0) ? 10 : Distance / 1000 % 10;
+ 268   3                  Seg_Buf[5] = (Distance / 100 % 10 == 0 && Seg_Buf[4] == 10) ? 10 : Distance / 100 % 10;
+ 269   3                  Seg_Buf[6] = (Distance / 10 % 10 == 0 && Seg_Buf[5] == 10) ? 10 : Distance / 10 % 10;
+ 270   3                  Seg_Buf[7] = Distance % 10;
+ 271   3              }
+ 272   2              // m
+ 273   2              else
+ 274   2              {
+ 275   3                  Seg_Buf[4] = (Distance / 1000 % 10 == 0) ? 10 : Distance / 1000 % 10;
+ 276   3                  Seg_Buf[5] = Distance / 100 % 10 + ',';
+ 277   3                  Seg_Buf[6] = Distance / 10 % 10;
+ 278   3                  Seg_Buf[7] = Distance % 10;
+ 279   3              }
+ 280   2              break;
+ 281   2      
+ 282   2          // 1：参数界面
+ 283   2          case 1:
+ 284   2              Seg_Buf[0] = 12;
+ 285   2              Seg_Buf[1] = para_mode + 1;
+ 286   2              Seg_Buf[2] = 10;
+ 287   2              Seg_Buf[3] = 10;
+ 288   2              Seg_Buf[4] = 10;
+ 289   2              Seg_Buf[5] = 10;
+ 290   2              if (para_mode == 0)
+ 291   2              {
+ 292   3                  Seg_Buf[6] = distance_para / 10 % 10;
+ 293   3                  Seg_Buf[7] = distance_para % 10;
+ 294   3              }
+ 295   2              else
+ 296   2              {
+ 297   3                  Seg_Buf[6] = (temperature_para / 10 % 10 == 0) ? 10 : temperature_para / 10 % 10;
+ 298   3                  Seg_Buf[7] = temperature_para % 10;
+ 299   3              }
+ 300   2              break;
+ 301   2      
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 6   
+
+ 302   2          // 2:工厂模式界面
+ 303   2          case 2:
+ 304   2              Seg_Buf[0] = 13;
+ 305   2              Seg_Buf[1] = factory_mode + 1;
+ 306   2              Seg_Buf[2] = 10;
+ 307   2              Seg_Buf[3] = 10;
+ 308   2              if (factory_mode == 0)
+ 309   2              {
+ 310   3                  Seg_Buf[4] = 10;
+ 311   3                  if (calibration_data >= 0)
+ 312   3                  {
+ 313   4                      Seg_Buf[5] = (calibration_data / 100 % 10 == 0) ? 10 : calibration_data / 100 % 10;
+ 314   4                      Seg_Buf[6] = (calibration_data / 10 % 10 == 0 && Seg_Buf[5] == 10) ? 10 : calibration_data
+             - / 10 % 10;
+ 315   4                      Seg_Buf[7] = calibration_data % 10;
+ 316   4                  }
+ 317   3                  else if (calibration_data > -10)
+ 318   3                  {
+ 319   4                      calibration_data_abs = -calibration_data;
+ 320   4                      Seg_Buf[5] = 10;
+ 321   4                      Seg_Buf[6] = 11;
+ 322   4                      Seg_Buf[7] = calibration_data_abs % 10;
+ 323   4                  }
+ 324   3                  else
+ 325   3                  {
+ 326   4                      calibration_data_abs = -calibration_data;
+ 327   4                      Seg_Buf[5] = 11;
+ 328   4                      Seg_Buf[6] = calibration_data_abs / 10 % 10;
+ 329   4                      Seg_Buf[7] = calibration_data_abs % 10;
+ 330   4                  }
+ 331   3              }
+ 332   2              else if (factory_mode == 1)
+ 333   2              {
+ 334   3                  Seg_Buf[4] = (transmission_speed / 1000 % 10 == 0) ? 10 : transmission_speed / 1000 % 10;
+ 335   3                  Seg_Buf[5] = (transmission_speed / 100 % 10 == 0 && Seg_Buf[4] == 10) ? 10 : transmission_spee
+             -d / 100 % 10;
+ 336   3                  Seg_Buf[6] = (transmission_speed / 10 % 10 == 0 && Seg_Buf[5] == 10) ? 10 : transmission_speed
+             - / 10 % 10;
+ 337   3                  Seg_Buf[7] = transmission_speed % 10;
+ 338   3              }
+ 339   2              else
+ 340   2              {
+ 341   3                  Seg_Buf[4] = 10;
+ 342   3                  Seg_Buf[5] = 10;
+ 343   3                  Seg_Buf[6] = dac_output_lower_limit / 10 % 10 + ',';
+ 344   3                  Seg_Buf[7] = dac_output_lower_limit % 10;
+ 345   3              }
+ 346   2              break;
+ 347   2          }
+ 348   1      }
+ 349          
+ 350          /**
+ 351           * @brief LED处理函数
+ 352           * 设置LED的状态，这里是固定的交替亮灭模式。
+ 353           */
+ 354          void Led_Proc()
+ 355          {
+ 356   1          unsigned char i;
+ 357   1      
+ 358   1          switch (Seg_Show_Mode)
+ 359   1          {
+ 360   2          // 测距界面
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 7   
+
+ 361   2          case 0:
+ 362   2              if (Distance >= 255)
+ 363   2              {
+ 364   3                  for (i = 0; i < 8; i++)
+ 365   3                  {
+ 366   4                      ucLed[i] = 1;
+ 367   4                  }
+ 368   3              }
+ 369   2              else
+ 370   2              {
+ 371   3                  for (i = 0; i < 8; i++)
+ 372   3                  {
+ 373   4                      ucLed[i] = (Distance >> (7 - i)) & 1;
+ 374   4                  }
+ 375   3              }
+ 376   2              break;
+ 377   2          // 参数界面
+ 378   2          case 1:
+ 379   2              for (i = 0; i < 7; i++)
+ 380   2                  ucLed[i] = 0;
+ 381   2              ucLed[7] = 1;
+ 382   2              break;
+ 383   2          // 工厂模式
+ 384   2          case 2:
+ 385   2              for (i = 1; i < 8; i++)
+ 386   2                  ucLed[i] = 0;
+ 387   2              ucLed[0] = led_flag;
+ 388   2              break;
+ 389   2          }
+ 390   1          Led_Disp(ucLed); // 实际的显示操作在Timer1中断中根据PWM进行
+ 391   1      
+ 392   1          if ((Distance >= distance_para - 5) && (Distance <= distance_para + 5) && (Temperature_10x < temperatu
+             -re_para * 10))
+ 393   1              Relay(1);
+ 394   1          else
+ 395   1              Relay(0);
+ 396   1      }
+ 397          
+ 398          /**
+ 399           * @brief 获取DS18B20温度
+ 400           */
+ 401          void Get_Temperature()
+ 402          {
+ 403   1          // 调用单总线驱动函数读取温度，并放大10倍
+ 404   1          Temperature_10x = rd_temperature() * 10;
+ 405   1      }
+ 406          
+ 407          /**
+ 408           * @brief ADC/DAC处理函数
+ 409           * 读取光敏电阻和电位器的AD值，并设置DAC输出。
+ 410           */
+ 411          void AD_DA()
+ 412          {
+ 413   1      }
+ 414          
+ 415          /**
+ 416           * @brief 获取超声波测量的距离
+ 417           */
+ 418          void Get_Distance()
+ 419          {
+ 420   1          Distance = Ut_Wave_Data(transmission_speed) + calibration_data; // 调用超声波驱动函数
+ 421   1      }
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 8   
+
+ 422          
+ 423          /**
+ 424           * @brief 定时器1初始化函数
+ 425           * 配置为1ms中断的定时器，作为系统的心跳。
+ 426           */
+ 427          void Timer1_Init(void) // 1毫秒@12.000MHz
+ 428          {
+ 429   1          AUXR &= 0xBF; // 定时器时钟12T模式
+ 430   1          TMOD &= 0x0F; // 设置定时器模式 (清空T1的设置)
+ 431   1          TL1 = 0x18;   // 设置定时初始值 (65536-1000) -> FC18H
+ 432   1          TH1 = 0xFC;   // 设置定时初始值
+ 433   1          TF1 = 0;      // 清除TF1溢出标志
+ 434   1          TR1 = 1;      // 定时器1开始计时
+ 435   1          ET1 = 1;      // 使能定时器1中断
+ 436   1          EA = 1;       // 开启总中断
+ 437   1      }
+ 438          
+ 439          /**
+ 440           * @brief 定时器1中断服务函数
+ 441           * 每1ms执行一次，处理需要定时执行的任务。
+ 442           */
+ 443          void Timer1_Isr(void) interrupt 3
+ 444          {
+ 445   1          uwTick++; // 系统滴答计时器加1
+ 446   1      
+ 447   1          // 数码管动态扫描
+ 448   1          Seg_Pos = (++Seg_Pos) % 8; // 切换到下一位数码管
+ 449   1          // 判断显示缓冲区的值是否需要显示小数点
+ 450   1          // (通过给数字加上一个大偏移量','作为标志)
+ 451   1          if (Seg_Buf[Seg_Pos] > 20)
+ 452   1              // 显示数字，并点亮小数点
+ 453   1              Seg_Disp(Seg_Pos, Seg_Buf[Seg_Pos] - ',', 1);
+ 454   1          else
+ 455   1              // 显示数字，不点亮小数点
+ 456   1              Seg_Disp(Seg_Pos, Seg_Buf[Seg_Pos], 0);
+ 457   1      
+ 458   1          if (distance_record_flag == 1)
+ 459   1          {
+ 460   2              if (++time_6000ms == 6000)
+ 461   2              {
+ 462   3                  distance_record_flag = 0;
+ 463   3                  recording_completed_flag = 1;
+ 464   3              }
+ 465   2          }
+ 466   1          else
+ 467   1              time_6000ms = 0;
+ 468   1      
+ 469   1          if (S89_flag == 1)
+ 470   1          {
+ 471   2              if (++time_2000ms >= 2000)
+ 472   2                  time_2000ms = 2001;
+ 473   2          }
+ 474   1          else
+ 475   1              time_2000ms = 0;
+ 476   1      
+ 477   1          if (factory_flag == 1)
+ 478   1          {
+ 479   2              if (++time_100ms == 100)
+ 480   2              {
+ 481   3                  led_flag ^= 1;
+ 482   3                  time_100ms = 0;
+ 483   3              }
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 9   
+
+ 484   2          }
+ 485   1          else
+ 486   1          {
+ 487   2              time_100ms = 0;
+ 488   2              led_flag = 0;
+ 489   2          }
+ 490   1      }
+ 491          
+ 492          // 简单任务调度器结构体定义
+ 493          typedef struct
+ 494          {
+ 495              void (*task_func)(void);   // 任务函数指针
+ 496              unsigned long int rate_ms; // 任务执行周期（毫秒）
+ 497              unsigned long int last_ms; // 上次执行的时间戳
+ 498          } task_t;
+ 499          
+ 500          // 任务列表
+ 501          idata task_t Scheduler_Task[] = {
+ 502              {Led_Proc, 1, 0},          // LED任务，每1ms
+ 503              {Key_Proc, 10, 0},         // 按键任务，每10ms
+ 504              {Seg_Proc, 20, 0},         // 数码管任务，每20ms
+ 505              {Get_Temperature, 300, 0}, // 获取温度任务，每300ms
+ 506              {AD_DA, 150, 0},           // AD/DA任务，每150ms
+ 507              {Get_Distance, 120, 0},    // 获取距离任务，每120ms
+ 508          
+ 509          };
+ 510          
+ 511          idata unsigned char task_num; // 任务数量
+ 512          
+ 513          /**
+ 514           * @brief 调度器初始化
+ 515           * 计算任务列表中的任务数量。
+ 516           */
+ 517          void Scheduler_Init()
+ 518          {
+ 519   1          task_num = sizeof(Scheduler_Task) / sizeof(task_t);
+ 520   1      }
+ 521          
+ 522          /**
+ 523           * @brief 调度器运行函数
+ 524           * 循环检查每个任务是否到达执行时间。
+ 525           */
+ 526          void Scheduler_Run()
+ 527          {
+ 528   1          unsigned char i;
+ 529   1          for (i = 0; i < task_num; i++)
+ 530   1          {
+ 531   2              unsigned long int now_time = uwTick; // 获取当前时间
+ 532   2              // 判断是否到达任务执行时间 (当前时间 >= 上次执行时间 + 周期)
+ 533   2              if (now_time >= (Scheduler_Task[i].rate_ms + Scheduler_Task[i].last_ms))
+ 534   2              {
+ 535   3                  Scheduler_Task[i].last_ms = now_time; // 更新上次执行时间
+ 536   3                  Scheduler_Task[i].task_func();        // 执行任务函数
+ 537   3              }
+ 538   2          }
+ 539   1      }
+ 540          
+ 541          /**
+ 542           * @brief 主函数
+ 543           */
+ 544          void main()
+ 545          {
+C51 COMPILER V9.60.7.0   MAIN                                                              03/27/2026 20:19:40 PAGE 10  
+
+ 546   1          System_Init();    // 系统底层初始化
+ 547   1          Scheduler_Init(); // 任务调度器初始化
+ 548   1          Timer1_Init();    // 定时器1（系统心跳）初始化
+ 549   1      
+ 550   1          // 主循环
+ 551   1          while (1)
+ 552   1          {
+ 553   2              Scheduler_Run(); // 循环执行任务调度器
+ 554   2          }
+ 555   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2123    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     80    ----
+   DATA SIZE        =   ----       7
+   IDATA SIZE       =     98    ----
+   BIT SIZE         =      6    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

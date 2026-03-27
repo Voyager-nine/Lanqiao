@@ -1,0 +1,125 @@
+C51 COMPILER V9.60.7.0   ULTRASOUND                                                        03/27/2026 20:19:41 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE ULTRASOUND
+OBJECT MODULE PLACED IN .\Objects\ultrasound.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE ..\src\driver\ultrasound.c OPTIMIZE(8,SPEED) BROWSE INCDIR(..\src\driver
+                    -) DEBUG OBJECTEXTEND PRINT(.\Listings\ultrasound.lst) TABS(2) OBJECT(.\Objects\ultrasound.obj)
+
+line level    source
+
+   1          #include "ultrasound.h" // 包含了超声波模块相关的函数声明
+   2          #include "intrins.h"    // 包含了Keil C51的内部函数，如_nop_()
+   3          
+   4          sbit US_TX = P1^0; // 定义超声波模块的触发(Trig)引脚，连接到P1.0
+   5          sbit US_RX = P1^1; // 定义超声波模块的回波(Echo)引脚，连接到P1.1
+   6          
+   7          // 部分开发板使用下面的短延时可能会跳，可以使用这个
+   8          //void Delay12us(void)  //@12.000MHz
+   9          //{
+  10          //  unsigned char data i;
+  11          //
+  12          //  _nop_();
+  13          //  _nop_();
+  14          //  i = 33;//38
+  15          //  while (--i);
+  16          //}
+  17          
+  18          /**
+  19           * @brief  一个短延时函数
+  20           * @note   这是一个基于特定时钟频率(12.000MHz)校准的软件延时。
+  21           * 其精确的延时时间对超声波模块的触发信号至关重要。
+  22           */
+  23          void Delay12us(void)    //@12.000MHz
+  24          {
+  25   1          unsigned char data i;
+  26   1      
+  27   1          _nop_(); // 空指令，用于微调延时
+  28   1          i = 3;
+  29   1          while (--i);
+  30   1      }
+  31          
+  32          /**
+  33           * @brief  产生超声波模块所需的触发信号
+  34           * @note   此函数通过循环8次，产生一串40kHz的脉冲波形作为触发信号，
+  35           */
+  36          void Ut_Wave_Init()
+  37          {
+  38   1          unsigned char i;
+  39   1          EA = 0; // 关总中断，以保证时序的精确性，防止在产生脉冲时被中断打断
+  40   1          for(i=0; i<8; i++)
+  41   1          {
+  42   2              US_TX = 1;      // 将触发引脚拉高
+  43   2              Delay12us();    // 延时
+  44   2              US_TX = 0;      // 将触发引脚拉低
+  45   2              Delay12us();    // 延时
+  46   2          }
+  47   1          EA = 1; // 恢复总中断
+  48   1      }
+  49          
+  50          // --- 距离计算原理 ---
+  51          // 声速 V = 340 m/s = 34000 cm/s = 0.034 cm/us
+  52          // 测得的时间 T 是超声波来回的总时间
+  53          // 距离 S = (T * V) / 2 = T * (0.034 / 2) = T * 0.017 cm
+  54          // 其中T的单位是微秒(us)，S的单位是厘米(cm)。
+C51 COMPILER V9.60.7.0   ULTRASOUND                                                        03/27/2026 20:19:41 PAGE 2   
+
+  55          
+  56          /**
+  57           * @brief  执行一次完整的超声波测距
+  58           * @return unsigned char - 返回测量到的距离（单位：厘米）。
+  59           * 如果测量超时（溢出），则返回0。
+  60           * @note   返回值是unsigned char，意味着最大可报告距离为255cm。
+  61           */
+  62          unsigned int Ut_Wave_Data(unsigned int speed)
+  63          {
+  64   1          unsigned int time; // 用于存储回波高电平的持续时间（计时器计数值）
+  65   1          
+  66   1          // 配置单片机内部的PCA（可编程计数器阵列）作为高精度计时器
+  67   1          // CMOD = 0x00: 设置PCA的时钟源为系统时钟的12分频 (在12MHz下，每1us计数一次)
+  68   1          CMOD = 0x00;
+  69   1          // 清空PCA计数器
+  70   1          CH = CL = 0;
+  71   1          
+  72   1          // 发送超声波触发脉冲
+  73   1          Ut_Wave_Init();
+  74   1          
+  75   1          // CR是PCA的运行控制位。置1后，PCA计数器开始计数。
+  76   1          CR = 1;
+  77   1          
+  78   1          // 等待，直到接收到回波（US_RX变为低电平）或计时器溢出
+  79   1          // CF是PCA的溢出标志位，如果计数器从0xFFFF变为0x0000，CF会被硬件置1
+  80   1          while((US_RX == 1) && (CF == 0));
+  81   1          
+  82   1          // 停止PCA计时器
+  83   1          CR = 0;
+  84   1          
+  85   1          // 判断循环退出的原因
+  86   1          if(CF == 0) // 如果是没有溢出（即成功接收到回波）
+  87   1          {
+  88   2              // 读取PCA计数器的16位值
+  89   2              time = CH << 8 | CL;
+  90   2              // 应用公式计算距离。time的值就是us数。
+  91   2              // 注意：结果(time * 0.017)是一个浮点数，但被强制转换为unsigned char返回。
+  92   2              return (time * ((float)speed / 20000.0));
+  93   2          }
+  94   1          else // 如果是计时器溢出（距离太远或无障碍物）
+  95   1          {
+  96   2              CF = 0; // 清除溢出标志，为下一次测量做准备
+  97   2              return 0; // 返回0表示测量失败或超出范围
+  98   2          }
+  99   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    119    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       2
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

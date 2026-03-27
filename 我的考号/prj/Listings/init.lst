@@ -1,0 +1,74 @@
+C51 COMPILER V9.60.7.0   INIT                                                              03/27/2026 20:19:40 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE INIT
+OBJECT MODULE PLACED IN .\Objects\init.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE ..\src\driver\init.c OPTIMIZE(8,SPEED) BROWSE INCDIR(..\src\driver) DEBU
+                    -G OBJECTEXTEND PRINT(.\Listings\init.lst) TABS(2) OBJECT(.\Objects\init.obj)
+
+line level    source
+
+   1          #include "init.h" // 包含了该模块相关的头文件
+   2          
+   3          /**
+   4           * @brief 系统硬件初始化函数
+   5           * @note  该函数负责在程序开始时将所有外设设置为一个已知的、安全的初始状态。
+   6           * 它主要操作P0口（数据口）和P2口（控制口）来关闭LED、继电器和蜂鸣器。
+   7           * P2口的高3位(P2.7, P2.6, P2.5)通常用作138译码器的地址输入，来选择不同的外设组。
+   8           */
+   9          void System_Init()
+  10          {
+  11   1          unsigned char temp; // 定义一个临时变量，用于暂存P2口的状态
+  12   1      
+  13   1          // --- 第一步: 关闭所有LED灯 ---
+  14   1          // 在典型的竞赛开发板上，138译码器的Y4输出（CBA=100）控制LED的使能。
+  15   1          
+  16   1          // 1. 设置数据口P0为全1。对于共阴极连接的LED，写入1表示熄灭。
+  17   1          P0 = 0xff;
+  18   1          
+  19   1          // 2. 选择LED外设组进行操作
+  20   1          temp = P2 & 0x1f;   // 读取P2口的当前状态，并屏蔽高3位（C,B,A），保留P2.0-P2.4的原状态。
+  21   1                              // 0x1f = 0001 1111b
+  22   1          temp = temp | 0x80;   // 将P2.7置1，P2.6和P2.5保持为0。即地址CBA=100。
+  23   1                              // 0x80 = 1000 0000b
+  24   1          P2 = temp;          // 将配置好的值写入P2口，此时138译码器的Y4输出有效，选中LED模块。
+  25   1                              // P0上的数据(0xff)被送到LED驱动电路上。
+  26   1          
+  27   1          // 3. 取消外设选择，防止干扰
+  28   1          temp = P2 & 0x1f;   // 再次屏蔽P2口的高3位，相当于将CBA清零。
+  29   1          P2 = temp;          // 写入P2，此时138译码器选中Y0。如果Y0未连接任何外设，则所有外设均不被选中。
+  30   1                              // 这个操作完成了对LED状态的“锁存”。
+  31   1      
+  32   1          // --- 第二步: 关闭继电器、蜂鸣器（和可能的电机）---
+  33   1          // 在典型的竞赛开发板上，138译码器的Y5输出（CBA=101）控制这些杂项外设。
+  34   1          
+  35   1          // 1. 设置数据口P0为全0。对于继电器、蜂鸣器等，写入0通常表示关闭或不工作。
+  36   1          P0 = 0x00;
+  37   1          
+  38   1          // 2. 选择继电器和蜂鸣器外设组
+  39   1          temp = P2 & 0x1f;   // 同样地，先保留P2口的低5位状态。
+  40   1          temp = temp | 0xa0;   // 将P2.7和P2.5置1，P2.6保持为0。即地址CBA=101。
+  41   1                              // 0xa0 = 1010 0000b
+  42   1          P2 = temp;          // 写入P2口，此时138译码器的Y5输出有效，选中继电器/蜂鸣器模块。
+  43   1                              // P0上的数据(0x00)被送到这些外设的驱动电路上。
+  44   1          
+  45   1          // 3. 取消外设选择
+  46   1          temp = P2 & 0x1f;   // 再次将P2口的高3位清零。
+  47   1          P2 = temp;          // 写入P2，完成对继电器/蜂鸣器状态的“锁存”。
+  48   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     39    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+C51 COMPILER V9.60.7.0   INIT                                                              03/27/2026 20:19:40 PAGE 2   
+
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

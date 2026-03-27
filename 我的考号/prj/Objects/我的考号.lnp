@@ -1,0 +1,11 @@
+".\Objects\STARTUP.obj",
+".\Objects\main.obj",
+".\Objects\key.obj",
+".\Objects\led.obj",
+".\Objects\seg.obj",
+".\Objects\init.obj",
+".\Objects\onewire.obj",
+".\Objects\iic.obj",
+".\Objects\ultrasound.obj" 
+TO ".\Objects\我的考号" 
+PRINT(".\Listings\我的考号.m51") RAMSIZE(256) 
