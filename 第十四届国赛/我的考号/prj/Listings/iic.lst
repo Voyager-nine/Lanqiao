@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.7.0   IIC                                                               03/27/2026 20:19:40 PAGE 1   
+C51 COMPILER V9.60.7.0   IIC                                                               03/29/2026 13:19:29 PAGE 1   
 
 
 C51 COMPILER V9.60.7.0, COMPILATION OF MODULE IIC
@@ -62,7 +62,7 @@ line level    source
   51          void I2CStop(void)
   52          {
   53   1          sda = 0; // 1. 确保SDA为低电平
-C51 COMPILER V9.60.7.0   IIC                                                               03/27/2026 20:19:40 PAGE 2   
+C51 COMPILER V9.60.7.0   IIC                                                               03/29/2026 13:19:29 PAGE 2   
 
   54   1          scl = 1; // 2. 拉高SCL
   55   1          I2C_Delay(DELAY_TIME);
@@ -126,7 +126,7 @@ line level    source
  113          {
  114   1          unsigned char ackbit;
  115   1      
-C51 COMPILER V9.60.7.0   IIC                                                               03/27/2026 20:19:40 PAGE 3   
+C51 COMPILER V9.60.7.0   IIC                                                               03/29/2026 13:19:29 PAGE 3   
 
  116   1          scl = 1; // 1. 主机拉高SCL，并释放SDA，准备接收从机的应答
  117   1          I2C_Delay(DELAY_TIME);
@@ -190,7 +190,7 @@ line level    source
  174   1          temp = I2CReceiveByte(); // 接收从机发回的AD转换结果
  175   1      
  176   1          I2CSendAck(1);      // 主机发送NACK(1)，表示读取结束，不再需要更多数据
-C51 COMPILER V9.60.7.0   IIC                                                               03/27/2026 20:19:40 PAGE 4   
+C51 COMPILER V9.60.7.0   IIC                                                               03/29/2026 13:19:29 PAGE 4   
 
  177   1          I2CStop();          // 发送停止信号，释放总线
  178   1      

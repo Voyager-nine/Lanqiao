@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.7.0   ONEWIRE                                                           03/27/2026 20:19:40 PAGE 1   
+C51 COMPILER V9.60.7.0   ONEWIRE                                                           03/29/2026 13:19:29 PAGE 1   
 
 
 C51 COMPILER V9.60.7.0, COMPILATION OF MODULE ONEWIRE
@@ -62,7 +62,7 @@ line level    source
   50           * @note  数据从最低位(LSB)开始接收。
   51           */
   52          unsigned char Read_DS18B20(void)
-C51 COMPILER V9.60.7.0   ONEWIRE                                                           03/27/2026 20:19:40 PAGE 2   
+C51 COMPILER V9.60.7.0   ONEWIRE                                                           03/29/2026 13:19:29 PAGE 2   
 
   53          {
   54   1          unsigned char i;
@@ -126,7 +126,7 @@ line level    source
  108   1          
  109   1          // --- 第二步: 等待转换完成 ---
  110   1          // 温度转换需要时间（最高精度下可达750ms），必须提供一个足够的延时。
-C51 COMPILER V9.60.7.0   ONEWIRE                                                           03/27/2026 20:19:40 PAGE 3   
+C51 COMPILER V9.60.7.0   ONEWIRE                                                           03/29/2026 13:19:29 PAGE 3   
 
  111   1          Delay_OneWire(200); 
  112   1          

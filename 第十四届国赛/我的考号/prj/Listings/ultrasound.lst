@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.7.0   ULTRASOUND                                                        03/27/2026 20:19:41 PAGE 1   
+C51 COMPILER V9.60.7.0   ULTRASOUND                                                        03/29/2026 13:19:30 PAGE 1   
 
 
 C51 COMPILER V9.60.7.0, COMPILATION OF MODULE ULTRASOUND
@@ -62,7 +62,7 @@ line level    source
   52          // 测得的时间 T 是超声波来回的总时间
   53          // 距离 S = (T * V) / 2 = T * (0.034 / 2) = T * 0.017 cm
   54          // 其中T的单位是微秒(us)，S的单位是厘米(cm)。
-C51 COMPILER V9.60.7.0   ULTRASOUND                                                        03/27/2026 20:19:41 PAGE 2   
+C51 COMPILER V9.60.7.0   ULTRASOUND                                                        03/29/2026 13:19:30 PAGE 2   
 
   55          
   56          /**

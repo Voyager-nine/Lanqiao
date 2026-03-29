@@ -52,6 +52,9 @@ idata unsigned char distance_count;
 idata bit distance_record_flag;
 idata unsigned int time_6000ms;
 idata bit recording_completed_flag;
+idata unsigned char distance_output_index;
+idata bit dac_out_flag;
+idata unsigned int time_1000ms;
 
 // 数码管显示模式
 // 0:测距界面 1:参数界面 2:工厂模式界面
@@ -87,7 +90,6 @@ idata unsigned char time_100ms;
  */
 void Key_Proc()
 {
-    unsigned char i;
     Key_Val = Key_Read(); // 读取当前按key的状态
     // 使用异或运算检测按键状态变化，& Key_Val 检测下降沿（按下）
     Key_Down = Key_Val & (Key_Val ^ Key_Old);
@@ -163,15 +165,11 @@ void Key_Proc()
         // 测距界面
         case 0:
             distance_record_flag = 1;
-            if (distance_record_flag == 1)
-            {
-                if (distance_old != Distance)
-                {
-                    distance_data[distance_count] = Distance;
-                    distance_old = Distance;
-                    distance_count++;
-                }
-            }
+						time_6000ms = 0;
+						recording_completed_flag = 0;
+					  distance_count = 0;
+						distance_old = 0xffff;
+						distance_output_index = 0;
             break;
 
         // 参数界面
@@ -204,19 +202,8 @@ void Key_Proc()
         {
         // 测距界面
         case 0:
-            if (recording_completed_flag == 1)
-            {
-                for (i = 0; i < distance_count; i++)
-                {
-                    if (distance_data[i] <= 10)
-                        Da_Write(dac_output_lower_limit * 51);
-                    else if (distance_data[i] >= 90)
-                        Da_Write(5 * 51);
-                    else
-                        Da_Write(((float)(5 - dac_output_lower_limit) * (float)(distance_data[i] - 10) / 80.0 + dac_output_lower_limit) * 51.0);
-                }
-                distance_count = 0;
-            }
+						dac_out_flag = 1;
+
             break;
 
         // 参数界面
@@ -370,7 +357,7 @@ void Led_Proc()
         {
             for (i = 0; i < 8; i++)
             {
-                ucLed[i] = (Distance >> (7 - i)) & 1;
+                ucLed[i] = (Distance >> i) & 1;
             }
         }
         break;
@@ -389,7 +376,7 @@ void Led_Proc()
     }
     Led_Disp(ucLed); // 实际的显示操作在Timer1中断中根据PWM进行
 
-    if ((Distance >= distance_para - 5) && (Distance <= distance_para + 5) && (Temperature_10x < temperature_para * 10))
+    if ((Distance >= distance_para - 5) && (Distance <= distance_para + 5) && (Temperature_10x <= temperature_para * 10))
         Relay(1);
     else
         Relay(0);
@@ -418,6 +405,13 @@ void AD_DA()
 void Get_Distance()
 {
     Distance = Ut_Wave_Data(transmission_speed) + calibration_data; // 调用超声波驱动函数
+	
+		if(distance_record_flag == 1 && distance_count < 32 && Distance != distance_old)
+		{
+			distance_data[distance_count] = Distance;
+			distance_old = Distance;
+			distance_count++;
+		}			
 }
 
 /**
@@ -487,6 +481,29 @@ void Timer1_Isr(void) interrupt 3
         time_100ms = 0;
         led_flag = 0;
     }
+		
+		if(dac_out_flag == 1)
+		{
+			if(++time_1000ms == 1000)
+			{
+				time_1000ms = 0;
+				if (recording_completed_flag == 1 && distance_count> 0)
+        {
+					if (distance_data[distance_output_index] <= 10)
+            Da_Write(((float)dac_output_lower_limit / 10.0) * 51.0);
+          else if (distance_data[distance_output_index] >= 90)
+            Da_Write(5 * 51);
+          else
+            Da_Write(((float)(5.0 - (float)dac_output_lower_limit / 10.0) * (float)(distance_data[distance_output_index] - 10) / 80.0 + (float)dac_output_lower_limit / 10.0) * 51.0);   
+					if(distance_output_index < distance_count - 1)
+						distance_output_index++;
+				}
+				else
+					dac_out_flag = 0;
+			}
+		}
+		else
+			time_1000ms = 0;
 }
 
 // 简单任务调度器结构体定义
